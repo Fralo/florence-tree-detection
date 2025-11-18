@@ -10,21 +10,19 @@ import pandas as pd
 from config import load_config
 import torch
 from deepforest import main
-from deepforest import get_data
-import matplotlib.pyplot as plt
 from pytorch_lightning.callbacks import ModelCheckpoint
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from pytorch_lightning.loggers import CSVLogger
+import warnings
+
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*DataFrame concatenation.*')
 
 config = load_config()
 train_config = config["training"]
 model_config = config["model"]
 data_config = config["data"]
 
-
-# ============================================================================
-# AUGMENTATION CONFIGURATIONS
-# ============================================================================
 
 class SafeAlbumentationsWrapper:
     """
@@ -90,14 +88,6 @@ def get_augmentation_registry():
             'description': 'Heavy augmentations - aggressive for small datasets',
             'transform': get_transform_heavy
         },
-        'aerial': {
-            'description': 'Optimized for aerial imagery - rotations and lighting',
-            'transform': get_transform_aerial
-        },
-        'custom': {
-            'description': 'Custom augmentations - modify this for experiments',
-            'transform': get_transform_custom
-        }
     }
 
 
@@ -239,57 +229,6 @@ def get_transform_heavy(augment):
         ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=["category_ids"], min_area=1.0, min_visibility=0.1))
     
     return SafeAlbumentationsWrapper(transform)
-
-
-def get_transform_aerial(augment):
-    """
-    Optimized for aerial imagery - focuses on rotations and lighting.
-    Good for: Drone/satellite imagery where orientation is arbitrary
-    """
-    if augment:
-        transform = A.Compose([
-            # All rotations are valid for aerial imagery
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-            A.Rotate(limit=180, border_mode=0, p=0.4),  # Full rotation range
-            
-            # Scale variations (different flight altitudes)
-            A.ShiftScaleRotate(
-                shift_limit=0.05,
-                scale_limit=0.15,
-                rotate_limit=0,  # Already handled by Rotate
-                border_mode=0,
-                p=0.4
-            ),
-            
-            # Lighting variations (time of day, weather, seasons)
-            A.RandomBrightnessContrast(
-                brightness_limit=0.25,
-                contrast_limit=0.25,
-                p=0.6
-            ),
-            A.HueSaturationValue(
-                hue_shift_limit=15,
-                sat_shift_limit=20,
-                val_shift_limit=15,
-                p=0.4
-            ),
-            
-            # Note: RandomFog removed due to compatibility issues
-            # A.RandomFog(fog_coef_lower=0.1, fog_coef_upper=0.3, p=0.1),
-            
-            ToTensorV2()
-        ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=["category_ids"], min_area=1.0, min_visibility=0.1))
-    else:
-        transform = A.Compose([
-            ToTensorV2()
-        ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=["category_ids"], min_area=1.0, min_visibility=0.1))
-    
-    return SafeAlbumentationsWrapper(transform)
-
-
-def get_transform_custom(augment):
     """
     Custom augmentations - modify this for your specific experiments.
     This is your playground for testing new augmentation combinations.
@@ -352,12 +291,6 @@ def print_augmentation_info():
 
 
 def load_and_validate_data(train_csv, val_csv):
-    """
-    Load and validate training and validation data.
-    
-    Expected CSV format:
-    image_path, xmin, ymin, xmax, ymax, label
-    """
     print("\n" + "="*50)
     print("Loading and validating data...")
     print("="*50)
@@ -400,8 +333,9 @@ def create_model(config):
     registry = get_augmentation_registry()
     print(f"  Description: {registry[augmentation_strategy]['description']}")
     
-    # Create model with custom transforms
+    # IF WE WANT AUGMENTATION STRATEGIES -> 
     model = main.deepforest(transforms=transform_func)
+    # model = main.deepforest()
     
     # Load pretrained weights if specified
     # model.load_model(model_name="weecology/deepforest-tree", revision="main")
@@ -425,7 +359,7 @@ def create_model(config):
     model.config["train"]["lr"] = config.get('learning_rate', 0.0001)
     model.config["train"]["scheduler"] = {
         "type": "reduce_on_plateau",
-        "monitor": "map",
+        "monitor": "val_loss",
         "params": {
             "patience": 3,
             "mode": "max",
@@ -440,8 +374,10 @@ def create_model(config):
     model.config["score_thresh"] = config.get('score_thresh', 0.4)
     model.config["nms_thresh"] = config.get('nms_thresh', 0.15)
     
-    # Set number of workers for data loading
     model.config["workers"] = config.get('num_workers', 4)
+    if model.config["workers"] > 0:
+        model.config["train"]["persistent_workers"] = True
+        model.config["validation"]["persistent_workers"] = True
     
     print(f"✓ Batch size: {model.config['batch_size']}")
     print(f"✓ Epochs: {model.config['train']['epochs']}")
@@ -471,10 +407,14 @@ def train_model(model, config):
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(output_dir),
         filename='best_model',
-        monitor='map',
-        mode='max',
         save_top_k=1,
         verbose=True
+    )
+    
+    csv_logger = CSVLogger(
+        save_dir=str(output_dir),
+        name="training_logs",
+        version=None
     )
     
     # Setup trainer arguments
@@ -482,6 +422,7 @@ def train_model(model, config):
         "fast_dev_run": config.get('fast_dev_run', False),
         "max_epochs": config.get('epochs', 20),
         "callbacks": [checkpoint_callback],
+        "logger": csv_logger,
     }
     
     # Add GPU support if available
@@ -508,60 +449,6 @@ def train_model(model, config):
         model.load_state_dict(checkpoint['state_dict'])
     
     return best_model_path
-
-
-def evaluate_model(model, config):
-    """
-    Evaluate the trained model on validation set.
-    
-    Args:
-        model: Trained DeepForest model
-        config: Dictionary with evaluation configuration
-    """
-    print("\n" + "="*50)
-    print("Evaluating model...")
-    print("="*50)
-    
-    # Save original batch size and set to 1 for evaluation to avoid collation issues
-    # Images may have different sizes, and batch_size > 1 causes tensor stacking errors
-    original_batch_size = model.config["batch_size"]
-    model.config["batch_size"] = 1
-    
-    # Run evaluation
-    results = model.evaluate(
-        csv_file=config['val_csv'],
-        root_dir=config.get('val_root_dir', os.path.dirname(config['val_csv'])),
-        iou_threshold=config.get('iou_threshold', 0.4)
-    )
-    
-    # Restore original batch size
-    model.config["batch_size"] = original_batch_size
-    
-    print("\nEvaluation Results:")
-    print("-" * 50)
-    if results is not None:
-        for key, value in results.items():
-            if isinstance(value, (int, float)):
-                print(f"{key}: {value:.4f}")
-            else:
-                print(f"{key}:")
-                print(value)
-    
-    # Save results
-    results_file = Path(config.get('output_dir', 'results')) / 'evaluation_results.txt'
-    with open(results_file, 'w') as f:
-        f.write("DeepForest Evaluation Results\n")
-        f.write("="*50 + "\n")
-        if results is not None:
-            for key, value in results.items():
-                if isinstance(value, (int, float)):
-                    f.write(f"{key}: {value:.4f}\n")
-                else:
-                    f.write(f"{key}:\n{value}\n\n")
-    
-    print(f"\n✓ Results saved to {results_file}")
-    
-    return results
 
 
 def save_model(model, config):
@@ -645,7 +532,7 @@ def main_pipeline(args):
         'output_dir': args.output_dir,
         'model_name': args.model_name,
         'iou_threshold': args.iou_threshold,
-        'fast_dev_run': False,
+        'fast_dev_run': args.fast_dev_run,
         'augmentation_strategy': args.augmentation_strategy,
     }
     
@@ -681,7 +568,7 @@ if __name__ == "__main__":
         '--augmentation-strategy',
         type=str,
         default='medium',
-        choices=['none', 'light', 'medium', 'heavy', 'aerial', 'custom'],
+        choices=['none', 'light', 'medium', 'heavy'],
         help='Augmentation strategy to use during training'
     )
     parser.add_argument(
@@ -697,7 +584,7 @@ if __name__ == "__main__":
         '--use-pretrained',
         action='store_true',
         default=True,
-        help='Use pretrained Bird Detector weights'
+        help='Use pretrained DeepForest weights'
     )
     parser.add_argument(
         '--no-pretrained',
@@ -710,7 +597,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=4,
+        default=1,
         help='Batch size for training'
     )
     parser.add_argument(
@@ -722,7 +609,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--learning-rate',
         type=float,
-        default=0.0001,
+        default=0.00005,
         help='Learning rate'
     )
     parser.add_argument(
@@ -740,7 +627,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--num-workers',
         type=int,
-        default=4,
+        default=2,
         help='Number of data loading workers'
     )
     

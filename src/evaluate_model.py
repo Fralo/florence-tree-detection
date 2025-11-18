@@ -70,6 +70,11 @@ def evaluate(model_path: Path | None):
         print(results["results"])
         results_df: pd.DataFrame = results["results"]
         results_df.to_csv(Path("evalutation_out.csv"))
+        
+        everything = [str(s) for s in results.keys()]
+        
+        with open(Path("tutto.txt"), "w") as txt_file:
+            txt_file.write(",".join(everything))
     else:
         print("No evaluation results were generated. The test set might be empty or paths might be incorrect.")
 

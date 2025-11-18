@@ -73,24 +73,35 @@ def extract_tree_coordinates_from_prediction(
     return coordinates
 
 @lru_cache()
-def load_model() -> main.deepforest:
+def load_model(model_path: str | None) -> main.deepforest:
+    """
+    Load the fine-tuned DeepForest model from the specified path.
+    If no path is provided, load the default pre-trained model.
+    Args:
+        model_path: Path to the fine-tuned model file. If None, load the default model.
+    Returns:
+        An instance of the DeepForest model.
+    """
     model = main.deepforest()
 
-    model.model = torch.load(model_config["final_model_path"], weights_only=False)
-    # model.model.load_state_dict(torch.load(model_config["final_model_path"]))
+    if model_path is None:
+        model.load_model(model_name="weecology/deepforest-tree", revision="main")
 
-    # Set the prediction score threshold
-    model.config["score_thresh"] = pred_config["score_thresh"]
+    model.model = torch.load(model_path, weights_only=False)
+    
     return model
 
-def predict(image: np.ndarray) -> geopandas.GeoDataFrame:
+def predict(image: np.ndarray, model_path: str | None = None, score_thresh: float = 0.3) -> geopandas.GeoDataFrame | None:
     """Load the fine-tuned model and predict on a single image."""
     if image is None:
         raise ValueError("None is not allowed for argument `image`")
 
     
-    model = load_model()
+    model = load_model(model_path), 
+    model.model.score_thresh = score_thresh
+    
     img_prediction = model.predict_image(image)
+    
     return img_prediction
 
 
@@ -108,7 +119,12 @@ if __name__ == "__main__":
         type=Path,
         help="Path to the image for prediction.",
     )
-
+    parser.add_argument(
+        "--model_path",
+        required=False,
+        type=str,
+        help="Path to the model.pt file"
+    )
     parser.add_argument("--image_url", required=False, type=str)
 
     args = parser.parse_args()
@@ -123,17 +139,27 @@ if __name__ == "__main__":
 
     image = np.array(img_file.convert("RGB")).astype("float32")
 
-    results_gdf = predict(image)
+    results_gdf = predict(image, args.model_path)
 
-    if args.image_path:
-        results_gdf["image_path"] = args.image_path.name
-        results_gdf.root_dir = str(args.image_path.parent)
-        plot_results(results_gdf)
-        # tree_coordinates = extract_tree_coordinates_from_prediction(
-        #     args.image_path,
-        #     results_gdf,
-        # )
+    if results_gdf is None:
+        
+        print("No tees found.")
+    elif not results_gdf.empty:
+        # print only the columns name of the  dataframe
+        print(results_gdf)
+        
+        if args.image_path:
+            results_gdf["image_path"] = args.image_path.name
+            results_gdf.root_dir = str(args.image_path.parent)
+            plot_results(results_gdf)
 
-        # print("\nTree coordinates (WGS 84 - EPSG:4326):")
-        # for i, (lon, lat) in enumerate(tree_coordinates, 1):
-        #     print(f"  Tree {i}: ({lat:.10f},{lon:.10f})")
+            # Example to extract trees coordintes from TIF image
+            # 
+            # tree_coordinates = extract_tree_coordinates_from_prediction(
+            #     args.image_path,
+            #     results_gdf,
+            # )
+
+            # print("\nTree coordinates (WGS 84 - EPSG:4326):")
+            # for i, (lon, lat) in enumerate(tree_coordinates, 1):
+            #     print(f"  Tree {i}: ({lat:.10f},{lon:.10f})")
