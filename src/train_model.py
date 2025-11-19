@@ -13,6 +13,8 @@ from deepforest import main
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 import warnings
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*DataFrame concatenation.*')
 
@@ -44,6 +46,27 @@ def load_and_validate_data(train_csv, val_csv):
     print(f"✓ Classes: {train_df['label'].unique()}")
     
     return train_df, val_df
+
+
+def get_transform(augment):
+    """
+    Get training augmentations.
+    
+    Args:
+        augment (bool): Whether to apply training augmentations
+    """
+    if augment:
+        return A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.RandomRotate90(p=0.5),
+            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
+            ToTensorV2()
+        ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['category_ids']))
+    else:
+        return A.Compose([
+            ToTensorV2()
+        ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['category_ids']))
 
 
 def create_model(config):
@@ -80,6 +103,9 @@ def create_model(config):
     
     model.config["validation"]["csv_file"] = config['val_csv']
     model.config["validation"]["root_dir"] = config.get('val_root_dir', os.path.dirname(config['val_csv']))
+    
+    # Set augmentations
+    model.transforms = get_transform
     
     # Training hyperparameters
     model.config["batch_size"] = config.get('batch_size', 4)
