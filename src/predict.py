@@ -86,8 +86,9 @@ def load_model(model_path: str | None) -> main.deepforest:
 
     if model_path is None:
         model.load_model(model_name="weecology/deepforest-tree", revision="main")
-
-    model.model = torch.load(model_path, weights_only=False)
+    else:
+        print(f"Loading model from: {model_path}")
+        model.model = torch.load(model_path, weights_only=False)
     
     return model
 
@@ -97,7 +98,7 @@ def predict(image: np.ndarray, model_path: str | None = None, score_thresh: floa
         raise ValueError("None is not allowed for argument `image`")
 
     
-    model = load_model(model_path), 
+    model = load_model(model_path)
     model.model.score_thresh = score_thresh
     
     img_prediction = model.predict_image(image)
