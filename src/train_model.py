@@ -55,18 +55,18 @@ def get_transform(augment):
     Args:
         augment (bool): Whether to apply training augmentations
     """
-    if augment:
-        return A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
-            ToTensorV2()
-        ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['category_ids']))
-    else:
-        return A.Compose([
-            ToTensorV2()
-        ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['category_ids']))
+    # if augment:
+    #     return A.Compose([
+    #         A.HorizontalFlip(p=0.5),
+    #         A.VerticalFlip(p=0.5),
+    #         A.RandomRotate90(p=0.5),
+    #         A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
+    #         ToTensorV2()
+    #     ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['category_ids']))
+    # else:
+    return A.Compose([
+        ToTensorV2()
+    ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['category_ids']))
 
 
 def create_model(config):
@@ -358,7 +358,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--num-workers',
         type=int,
-        default=2,
+        default=1,
         help='Number of data loading workers'
     )
     
