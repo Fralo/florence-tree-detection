@@ -109,3 +109,8 @@ test_data/*
 
 # Opencode
 .opencode/*
+
+data/03_results/*
+data/03_results_old/*
+
+models_not_so_old/*
