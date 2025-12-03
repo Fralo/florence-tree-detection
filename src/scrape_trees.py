@@ -183,7 +183,7 @@ def get_wms_geotiff(
                 img_file = Image.open(img_buffer)
                 image = np.array(img_file.convert("RGB")).astype("float32")
 
-                results_gdf = predict(image)
+                results_gdf = predict(image, model_path="models/deepforest_finetuned_4.pt")
                 
                 # filter out all row where score < 0.5
                 results_gdf = results_gdf[results_gdf['score'] >= 0.5]
@@ -263,11 +263,11 @@ def download_florence_tiles(start: Point, end: Point):
 
 if __name__ == "__main__":
     
-    model = load_model() #for warming up the model before downloading tiles
+    model = load_model("models/deepforest_finetuned_4.pt") #for warming up the model before downloading tiles
     
     
 
-    start_point = Point(677049.60, 4845873.31)
-    end_point = Point(687445.51, 4851771.78)
+    start_point = Point(678481.65,4844195.91)
+    end_point = Point(684964.18, 4851843.27)
 
     download_florence_tiles(start=start_point, end=end_point)

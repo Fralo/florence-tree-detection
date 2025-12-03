@@ -1,4 +1,3 @@
-from functools import lru_cache
 import geopandas
 
 import torch
@@ -72,8 +71,9 @@ def extract_tree_coordinates_from_prediction(
 
     return coordinates
 
-@lru_cache()
-def load_model(model_path: str | None) -> main.deepforest:
+_model_cache = {}
+
+def load_model(model_path: str | None = None) -> main.deepforest:
     """
     Load the fine-tuned DeepForest model from the specified path.
     If no path is provided, load the default pre-trained model.
@@ -82,15 +82,20 @@ def load_model(model_path: str | None) -> main.deepforest:
     Returns:
         An instance of the DeepForest model.
     """
-    model = main.deepforest()
-
-    if model_path is None:
-        model.load_model(model_name="weecology/deepforest-tree", revision="main")
-    else:
-        print(f"Loading model from: {model_path}")
-        model.model = torch.load(model_path, weights_only=False)
     
-    return model
+    cache_key = model_path or "default"
+    if cache_key not in _model_cache:
+        print(f"Loading model for: {cache_key}")
+        model = main.deepforest()
+        if model_path is None:
+            model.load_model(model_name="weecology/deepforest-tree", revision="main")
+        else:
+            print(f"Loading model from: {model_path}")
+            model.model = torch.load(model_path, weights_only=False)
+        _model_cache[cache_key] = model
+        
+    return _model_cache[cache_key]
+
 
 def predict(image: np.ndarray, model_path: str | None = None, score_thresh: float = 0.3) -> geopandas.GeoDataFrame | None:
     """Load the fine-tuned model and predict on a single image."""
