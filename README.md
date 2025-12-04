@@ -499,6 +499,20 @@ prediction:
 
 ---
 
+## Citation
+
+```latek
+@misc{Florence Tree Detection,
+  author = {Fralini, Leonardo},
+  title = {{Florence Tree Detection}: Sviluppo di un sistema per il riconoscimento di alberi in immagini aeree},
+  year = {2025},
+  howpublished = {\url{https://github.com/Fralo/florence-tree-detection}},
+  note = {GitHub repository}
+}
+```
+
+---
+
 ## License
 
 MIT License
